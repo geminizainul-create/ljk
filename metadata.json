@@ -1,0 +1,6 @@
+{
+  "name": "LJK GENERATOR SMEPASDA",
+  "description": "Aplikasi Generator, Scanner OMR, dan Koreksi Otomatis Lembar Jawaban Komputer SMP Negeri 2 Pasirian",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
