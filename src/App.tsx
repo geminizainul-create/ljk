@@ -187,6 +187,8 @@ export default function App() {
     );
   }
 
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
+
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-800">
       {/* Sidebar Navigation */}
@@ -195,8 +197,11 @@ export default function App() {
         onSelectTab={tab => {
           setSelectedScanIdForVerif(undefined);
           setCurrentTab(tab);
+          setIsMobileMenuOpen(false);
         }}
         pendingVerificationCount={pendingCount}
+        isOpenMobile={isMobileMenuOpen}
+        onCloseMobile={() => setIsMobileMenuOpen(false)}
       />
 
       {/* Main Content Area */}
@@ -207,6 +212,7 @@ export default function App() {
           settings={settings}
           onOpenTestSimulation={handleOpenTestSimulation}
           onOpenQuickScan={handleOpenQuickScan}
+          onToggleMobileMenu={() => setIsMobileMenuOpen(prev => !prev)}
         />
 
         {/* Scrollable View Container */}
