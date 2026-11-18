@@ -48,6 +48,7 @@ export default function App() {
   const [scans, setScans] = useState<ScanResult[]>([]);
   const [selectedScanIdForVerif, setSelectedScanIdForVerif] = useState<string | undefined>(undefined);
   const [templateToEdit, setTemplateToEdit] = useState<OMRTemplate | null>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
 
   // Load and seed initial data
   const loadAllData = async () => {
@@ -186,8 +187,6 @@ export default function App() {
       </div>
     );
   }
-
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans text-slate-800">
