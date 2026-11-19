@@ -90,6 +90,7 @@ export const LjkGeneratorView: React.FC<LjkGeneratorViewProps> = ({
       rawNumbers: '1-25',
       numbers: Array.from({ length: 25 }, (_, i) => i + 1),
       optionsCount: 4,
+      columnsCount: 3,
       pointsPerItem: 2
     },
     {
@@ -98,6 +99,7 @@ export const LjkGeneratorView: React.FC<LjkGeneratorViewProps> = ({
       rawNumbers: '26-30',
       numbers: [26, 27, 28, 29, 30],
       optionsCount: 4,
+      columnsCount: 3,
       pointsPerItem: 2
     },
     {
@@ -107,6 +109,7 @@ export const LjkGeneratorView: React.FC<LjkGeneratorViewProps> = ({
       numbers: [31, 32, 33, 34, 35],
       optionsCount: 2,
       subItemsCount: 3,
+      columnsCount: 3,
       pointsPerItem: 2
     },
     {
@@ -183,6 +186,7 @@ export const LjkGeneratorView: React.FC<LjkGeneratorViewProps> = ({
             numbers: parsed.numbers.length > 0 ? parsed.numbers : (q.numbers || []),
             optionsCount: q.optionsCount || (q.type === 'PG' ? 4 : q.type === 'MENJODOHKAN' ? 5 : 4),
             subItemsCount: q.subItemsCount || (q.type === 'BENAR_SALAH' ? 3 : q.type === 'MENJODOHKAN' ? 4 : undefined),
+            columnsCount: q.columnsCount || (['PG', 'PG_KOMPLEKS', 'BENAR_SALAH'].includes(q.type) ? 3 : undefined),
             pointsPerItem: q.pointsPerItem || (q.type.startsWith('URAIAN') ? 5 : 2)
           };
         });
@@ -230,6 +234,7 @@ export const LjkGeneratorView: React.FC<LjkGeneratorViewProps> = ({
         rawNumbers: '1-25',
         numbers: Array.from({ length: 25 }, (_, i) => i + 1),
         optionsCount: 4,
+        columnsCount: 3,
         pointsPerItem: 2
       },
       {
@@ -238,6 +243,7 @@ export const LjkGeneratorView: React.FC<LjkGeneratorViewProps> = ({
         rawNumbers: '26-30',
         numbers: [26, 27, 28, 29, 30],
         optionsCount: 4,
+        columnsCount: 3,
         pointsPerItem: 2
       },
       {
@@ -247,6 +253,7 @@ export const LjkGeneratorView: React.FC<LjkGeneratorViewProps> = ({
         numbers: [31, 32, 33, 34, 35],
         optionsCount: 2,
         subItemsCount: 3,
+        columnsCount: 3,
         pointsPerItem: 2
       },
       {
@@ -473,6 +480,7 @@ export const LjkGeneratorView: React.FC<LjkGeneratorViewProps> = ({
               numbers: parsed.numbers.length > 0 ? parsed.numbers : (q.numbers || []),
               optionsCount: q.optionsCount || (q.type === 'PG' ? 4 : q.type === 'MENJODOHKAN' ? 5 : 4),
               subItemsCount: q.subItemsCount || (q.type === 'BENAR_SALAH' ? 3 : q.type === 'MENJODOHKAN' ? 4 : undefined),
+              columnsCount: q.columnsCount || (['PG', 'PG_KOMPLEKS', 'BENAR_SALAH'].includes(q.type) ? 3 : undefined),
               pointsPerItem: q.pointsPerItem || (q.type.startsWith('URAIAN') ? 5 : 2)
             };
           });
@@ -999,7 +1007,7 @@ export const LjkGeneratorView: React.FC<LjkGeneratorViewProps> = ({
 
                 {q.enabled && (
                   <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-12 gap-3 text-xs">
-                    <div className="sm:col-span-6">
+                    <div className={['PG', 'PG_KOMPLEKS', 'BENAR_SALAH'].includes(q.type) ? 'sm:col-span-4' : 'sm:col-span-6'}>
                       <label className="block font-semibold text-slate-700 mb-1">
                         Daftar Nomor Soal (Rentang / Koma)
                       </label>
@@ -1061,7 +1069,24 @@ export const LjkGeneratorView: React.FC<LjkGeneratorViewProps> = ({
                       )}
                     </div>
 
-                    <div className="sm:col-span-3">
+                    {['PG', 'PG_KOMPLEKS', 'BENAR_SALAH'].includes(q.type) && (
+                      <div className="sm:col-span-3">
+                        <label className="block font-semibold text-slate-700 mb-1">Jumlah Kolom LJK</label>
+                        <select
+                          value={q.columnsCount || 3}
+                          onChange={e => handleUpdateQuestion(idx, { columnsCount: parseInt(e.target.value) })}
+                          className="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white font-medium focus:ring-2 focus:ring-blue-500/20"
+                        >
+                          <option value={1}>1 Kolom</option>
+                          <option value={2}>2 Kolom</option>
+                          <option value={3}>3 Kolom (Standar)</option>
+                          <option value={4}>4 Kolom</option>
+                          <option value={5}>5 Kolom</option>
+                        </select>
+                      </div>
+                    )}
+
+                    <div className={['PG', 'PG_KOMPLEKS', 'BENAR_SALAH'].includes(q.type) ? 'sm:col-span-2' : 'sm:col-span-3'}>
                       <label className="block font-semibold text-slate-700 mb-1">Bobot Poin / Butir</label>
                       <input
                         type="number"

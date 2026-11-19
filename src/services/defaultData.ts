@@ -30,6 +30,7 @@ export const DEFAULT_QUESTION_CONFIGS: QuestionConfig[] = [
     rawNumbers: '1-25',
     numbers: Array.from({ length: 25 }, (_, i) => i + 1),
     optionsCount: 4,
+    columnsCount: 3,
     pointsPerItem: 2
   },
   {
@@ -38,6 +39,7 @@ export const DEFAULT_QUESTION_CONFIGS: QuestionConfig[] = [
     rawNumbers: '26-30',
     numbers: [26, 27, 28, 29, 30],
     optionsCount: 4,
+    columnsCount: 3,
     pointsPerItem: 2
   },
   {
@@ -47,6 +49,7 @@ export const DEFAULT_QUESTION_CONFIGS: QuestionConfig[] = [
     numbers: [31, 32, 33, 34, 35],
     optionsCount: 2,
     subItemsCount: 3,
+    columnsCount: 3,
     pointsPerItem: 2
   },
   {

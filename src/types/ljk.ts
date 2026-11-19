@@ -40,6 +40,7 @@ export interface QuestionConfig {
   numbers: number[];  // parsed array of integers
   optionsCount: number; // e.g. 4 for A-D, 5 for A-E
   subItemsCount?: number; // for Benar-Salah (statements A-C/D) or Menjodohkan (pairs 1-4)
+  columnsCount?: number; // jumlah kolom tampilan di LJK (1, 2, 3, 4, atau 5), default 3
   pointsPerItem: number;
 }
 

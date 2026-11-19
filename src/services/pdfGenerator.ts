@@ -277,8 +277,11 @@ export function generateLjkPdfAndTemplate(options: GenerateLjkOptions): {
 
   // --- 3. IDENTITAS PESERTA & STUDENT ID BUBBLE GRID ---
   const idBoxY = curY;
-  const idBoxHeight = 31;
-  const idInfoWidth = studentIdGridEnabled ? 110 : contentWidth;
+  const rowStepY = 4.4;
+  const sidHeaderH = 5.2;
+  const minGridHeight = sidHeaderH + 0.8 + studentIdDigits * rowStepY + 2.0;
+  const idBoxHeight = studentIdGridEnabled ? Math.max(31, minGridHeight) : 31;
+  const idInfoWidth = studentIdGridEnabled ? 108 : contentWidth;
   const gridWidth = contentWidth - idInfoWidth;
 
   // Left: Identity Fields
@@ -288,14 +291,15 @@ export function generateLjkPdfAndTemplate(options: GenerateLjkOptions): {
 
   doc.setFontSize(7.5);
   const leftX = marginX + 3;
-  let textY = idBoxY + 4.5;
+  const fieldStep = Math.min(7.5, Math.max(5.2, (idBoxHeight - 7.5) / 5));
+  let textY = idBoxY + (idBoxHeight > 36 ? 6.5 : 4.5);
 
   const fields = [
-    { label: 'Nama Peserta', val: ': .....................................................................' },
-    { label: 'Kelas / Ruang', val: `: ${exam.kelas ? `${exam.kelas}  /  Ruang: ............................................` : '.............  /  Ruang: ............................................'}` },
-    { label: 'Mata Pelajaran', val: `: ${exam.mataPelajaran || '...........................................'}` },
-    { label: 'Hari / Tanggal', val: `: ${exam.hariTanggal || '...........................................'}` },
-    { label: 'Tanda Tangan', val: ': [ ............................................. ]' }
+    { label: 'Nama Peserta', val: ': ...................................................................' },
+    { label: 'Kelas / Ruang', val: `: ${exam.kelas ? `${exam.kelas}  /  Ruang: ..........................................` : '.............  /  Ruang: ..........................................'}` },
+    { label: 'Mata Pelajaran', val: `: ${exam.mataPelajaran || '.........................................'}` },
+    { label: 'Hari / Tanggal', val: `: ${exam.hariTanggal || '.........................................'}` },
+    { label: 'Tanda Tangan', val: ': [ ........................................... ]' }
   ];
 
   fields.forEach(f => {
@@ -304,45 +308,52 @@ export function generateLjkPdfAndTemplate(options: GenerateLjkOptions): {
     doc.text(f.label, leftX, textY);
     doc.setFont('helvetica', 'normal');
     doc.text(f.val, leftX + 22, textY);
-    textY += 5.2;
+    textY += fieldStep;
   });
 
   // Right: Nomor Peserta OMR Grid (if enabled)
-  // Radius bulatan = 0.95mm dan step vertikal = 2.15mm agar lingkaran 0-9 TIDAK BERTUMPUK!
-  const sidBubbleRadius = 0.95; // mm (diameter 1.9mm, dengan jarak antar pusat 2.15mm ada jarak bersih 0.25mm)
+  // Kotak digit disusun vertikal, sedangkan bulatan angka 0-9 disusun horizontal agar diameter bulatan besar (3.6mm) dan mudah dihitamkan!
+  const sidBubbleRadius = 1.8; // mm (diameter 3.6mm, nyaman & akurat untuk pensil 2B)
   if (studentIdGridEnabled) {
     const gridX = marginX + idInfoWidth;
     doc.setDrawColor(0, 0, 0);
     doc.setLineWidth(0.2);
     doc.rect(gridX, idBoxY, gridWidth, idBoxHeight, 'S');
 
+    // Header bar NOMOR PESERTA
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7);
     doc.setTextColor(0, 0, 0);
-    doc.text('NOMOR PESERTA', gridX + gridWidth / 2, idBoxY + 3.5, { align: 'center' });
+    doc.text('NOMOR PESERTA', gridX + gridWidth / 2, idBoxY + 3.7, { align: 'center' });
+    doc.line(gridX, idBoxY + sidHeaderH, gridX + gridWidth, idBoxY + sidHeaderH);
 
-    // Grid columns
-    const colWidth = gridWidth / studentIdDigits;
-    const startY = idBoxY + 4.8;
+    // Posisi horizontal kotak tulis digit (kiri) & 10 bulatan 0-9 (kanan)
+    const boxLeftX = gridX + 2.5;
+    const boxW = 5.6;
+    const boxH = 3.7;
+    const firstBubbleX = boxLeftX + boxW + 4.9;
+    const stepX = Math.min(7.2, (gridWidth - (boxW + 9.9)) / 9);
+    const startRowCenterY = idBoxY + sidHeaderH + 0.8 + rowStepY / 2;
 
-    // Header boxes for written digits
     for (let d = 0; d < studentIdDigits; d++) {
-      const colCenterX = gridX + d * colWidth + colWidth / 2;
-      doc.setDrawColor(0, 0, 0);
-      doc.setLineWidth(0.2);
-      doc.rect(gridX + d * colWidth + 1.2, startY, colWidth - 2.4, 3.2, 'S');
+      const rowCenterY = startRowCenterY + d * rowStepY;
 
-      // 0 to 9 bubbles vertically without overlapping
+      // Kotak tulis angka digit disusun vertikal dari atas ke bawah
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.22);
+      doc.rect(boxLeftX, rowCenterY - boxH / 2, boxW, boxH, 'S');
+
+      // 10 bulatan angka 0-9 disusun horizontal ke kanan
       for (let num = 0; num <= 9; num++) {
-        const bY = startY + 4.5 + num * 2.15;
+        const bX = firstBubbleX + num * stepX;
         doc.setLineWidth(0.2);
         doc.setDrawColor(0, 0, 0);
-        doc.circle(colCenterX, bY, sidBubbleRadius, 'S');
+        doc.circle(bX, rowCenterY, sidBubbleRadius, 'S');
 
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(4.5);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(5.8);
         doc.setTextColor(0, 0, 0);
-        doc.text(num.toString(), colCenterX, bY + 0.45, { align: 'center' });
+        doc.text(num.toString(), bX, rowCenterY + 0.68, { align: 'center' });
 
         // Register bubble for student ID
         bubbleCoordinates.push({
@@ -352,8 +363,8 @@ export function generateLjkPdfAndTemplate(options: GenerateLjkOptions): {
           option: num.toString(),
           subItemIndex: d,
           page: 1,
-          x: Math.round(colCenterX * 100) / 100,
-          y: Math.round(bY * 100) / 100,
+          x: Math.round(bX * 100) / 100,
+          y: Math.round(rowCenterY * 100) / 100,
           radius: sidBubbleRadius
         });
       }
@@ -498,19 +509,21 @@ export function generateLjkPdfAndTemplate(options: GenerateLjkOptions): {
   const essayShortConfig = questions.find(q => q.type === 'URAIAN_SINGKAT' && q.enabled);
   const essayLongConfig = questions.find(q => q.type === 'URAIAN_PANJANG' && q.enabled);
 
-  // Common 3-column metrics helper to maximize paper efficiency
-  const sectionColGap = 4.0; // mm gap between the 3 columns
-  const getThreeColMetrics = (totalItems: number) => {
-    const numCols = Math.min(3, Math.max(1, totalItems));
-    const colWidth = (contentWidth - (numCols - 1) * sectionColGap) / numCols;
+  // Common multi-column metrics helper (supports 1 to 5 columns, default 3)
+  const sectionColGap = 4.0;
+  const getSectionColMetrics = (totalItems: number, requestedCols = 3) => {
+    const safeCols = Math.min(5, Math.max(1, requestedCols || 3));
+    const numCols = Math.min(safeCols, Math.max(1, totalItems));
+    const colGap = numCols >= 5 ? 3.0 : numCols === 4 ? 3.5 : sectionColGap;
+    const colWidth = (contentWidth - (numCols - 1) * colGap) / numCols;
     const itemsPerCol = Math.ceil(totalItems / numCols);
-    return { numCols, colWidth, itemsPerCol };
+    return { numCols, colWidth, itemsPerCol, colGap };
   };
 
-  // SECTION A: PILIHAN GANDA (Format 3 Kolom Efisien Kertas)
+  // SECTION A: PILIHAN GANDA (Format 1-5 Kolom Fleksibel)
   if (pgConfig && pgConfig.numbers.length > 0) {
     const totalPg = pgConfig.numbers.length;
-    const { colWidth, itemsPerCol } = getThreeColMetrics(totalPg);
+    const { numCols, colWidth, itemsPerCol, colGap } = getSectionColMetrics(totalPg, pgConfig.columnsCount || 3);
     const rowHeight = 4.9; // mm (radius 1.85mm -> diameter 3.7mm, leaving 1.2mm gap)
     const sectionHeight = 5.5 + itemsPerCol * rowHeight + 2.5;
 
@@ -521,26 +534,31 @@ export function generateLjkPdfAndTemplate(options: GenerateLjkOptions): {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
     doc.rect(marginX, curY, contentWidth, 4.5, 'F');
-    doc.text(`BAGIAN A. PILIHAN GANDA (Format 3 Kolom - ${pgConfig.numbers.length} Soal)`, marginX + 3, curY + 3.2);
+    doc.text(`BAGIAN A. PILIHAN GANDA (Format ${numCols} Kolom - ${pgConfig.numbers.length} Soal)`, marginX + 3, curY + 3.2);
     curY += 5.5;
+
+    const options = ['A', 'B', 'C', 'D', 'E'].slice(0, pgConfig.optionsCount || 4);
+    const isCompactFiveCol = numCols >= 5;
+    const numRightX = isCompactFiveCol ? 4.2 : 4.5;
+    const firstBubbleX = isCompactFiveCol ? (options.length >= 5 ? 8.2 : 9.0) : 9.5;
+    const itemOptSpacing = isCompactFiveCol ? (options.length >= 5 ? 4.9 : 5.0) : optSpacing;
 
     const startY = curY;
     pgConfig.numbers.forEach((qNum, idx) => {
       const col = Math.floor(idx / itemsPerCol);
       const row = idx % itemsPerCol;
-      const itemX = marginX + col * (colWidth + sectionColGap);
+      const itemX = marginX + col * (colWidth + colGap);
       const itemY = startY + row * rowHeight + 2;
 
       // Question Number (right aligned)
       doc.setTextColor(0, 0, 0);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7);
-      doc.text(`${qNum}.`, itemX + 4.5, itemY + 0.8, { align: 'right' });
+      doc.setFontSize(isCompactFiveCol ? 6.5 : 7);
+      doc.text(`${qNum}.`, itemX + numRightX, itemY + 0.8, { align: 'right' });
 
       // Bubbles A, B, C, D (and E if optionsCount = 5)
-      const options = ['A', 'B', 'C', 'D', 'E'].slice(0, pgConfig.optionsCount || 4);
       options.forEach((opt, oIdx) => {
-        const bX = itemX + 9.5 + oIdx * optSpacing;
+        const bX = itemX + firstBubbleX + oIdx * itemOptSpacing;
         drawBubble(qNum, opt, bX, itemY, 'PG');
       });
     });
@@ -548,10 +566,10 @@ export function generateLjkPdfAndTemplate(options: GenerateLjkOptions): {
     curY = startY + itemsPerCol * rowHeight + 2.5;
   }
 
-  // SECTION B: PG KOMPLEKS (Format 3 Kolom Efisien Kertas)
+  // SECTION B: PG KOMPLEKS (Format 1-5 Kolom Fleksibel)
   if (pgkConfig && pgkConfig.numbers.length > 0) {
     const totalPgk = pgkConfig.numbers.length;
-    const { colWidth, itemsPerCol } = getThreeColMetrics(totalPgk);
+    const { numCols, colWidth, itemsPerCol, colGap } = getSectionColMetrics(totalPgk, pgkConfig.columnsCount || 3);
     const rowHeight = 4.9;
     const sectionHeight = 5.5 + itemsPerCol * rowHeight + 2.5;
 
@@ -563,27 +581,32 @@ export function generateLjkPdfAndTemplate(options: GenerateLjkOptions): {
     doc.setFontSize(7.5);
     doc.rect(marginX, curY, contentWidth, 4.5, 'F');
     doc.text(
-      `BAGIAN B. PILIHAN GANDA KOMPLEKS (Format 3 Kolom - ${pgkConfig.numbers.length} Soal)`,
+      `BAGIAN B. PILIHAN GANDA KOMPLEKS (Format ${numCols} Kolom - ${pgkConfig.numbers.length} Soal)`,
       marginX + 3,
       curY + 3.2
     );
     curY += 5.5;
 
+    const isCompactFiveCol = numCols >= 5;
+    const numRightX = isCompactFiveCol ? 4.2 : 4.5;
+    const firstBubbleX = isCompactFiveCol ? 8.8 : 9.5;
+    const itemOptSpacing = isCompactFiveCol ? 5.0 : optSpacing;
+
     const startY = curY;
     pgkConfig.numbers.forEach((qNum, idx) => {
       const col = Math.floor(idx / itemsPerCol);
       const row = idx % itemsPerCol;
-      const itemX = marginX + col * (colWidth + sectionColGap);
+      const itemX = marginX + col * (colWidth + colGap);
       const itemY = startY + row * rowHeight + 2;
 
       doc.setTextColor(0, 0, 0);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7);
-      doc.text(`${qNum}.`, itemX + 4.5, itemY + 0.8, { align: 'right' });
+      doc.setFontSize(isCompactFiveCol ? 6.5 : 7);
+      doc.text(`${qNum}.`, itemX + numRightX, itemY + 0.8, { align: 'right' });
 
       const options = ['A', 'B', 'C', 'D'];
       options.forEach((opt, oIdx) => {
-        const bX = itemX + 9.5 + oIdx * optSpacing;
+        const bX = itemX + firstBubbleX + oIdx * itemOptSpacing;
         drawBubble(qNum, opt, bX, itemY, 'PG_KOMPLEKS');
       });
     });
@@ -591,12 +614,12 @@ export function generateLjkPdfAndTemplate(options: GenerateLjkOptions): {
     curY = startY + itemsPerCol * rowHeight + 2.5;
   }
 
-  // SECTION C: BENAR - SALAH (Format 3 Kolom Efisien Kertas dengan Kartu Terstruktur)
+  // SECTION C: BENAR - SALAH (Format 1-5 Kolom Fleksibel dengan Kartu Terstruktur)
   if (bsConfig && bsConfig.numbers.length > 0) {
     const subCount = bsConfig.subItemsCount || 3;
     const statements = ['A', 'B', 'C', 'D', 'E'].slice(0, subCount);
     const totalBs = bsConfig.numbers.length;
-    const { colWidth, itemsPerCol } = getThreeColMetrics(totalBs);
+    const { numCols, colWidth, itemsPerCol, colGap } = getSectionColMetrics(totalBs, bsConfig.columnsCount || 3);
     // Tinggi kartu: header (4.2mm) + statements (statements.length * 4.6mm) + buffer bawah (2.6mm)
     const cardHeight = 4.2 + statements.length * 4.6 + 2.6;
     const rowHeight = cardHeight + 2.2;
@@ -610,20 +633,29 @@ export function generateLjkPdfAndTemplate(options: GenerateLjkOptions): {
     doc.setFontSize(7.5);
     doc.rect(marginX, curY, contentWidth, 4.5, 'F');
     doc.text(
-      `BAGIAN C. BENAR - SALAH (Format 3 Kolom - ${bsConfig.numbers.length} Soal)`,
+      `BAGIAN C. BENAR - SALAH (Format ${numCols} Kolom - ${bsConfig.numbers.length} Soal)`,
       marginX + 3,
       curY + 3.2
     );
     curY += 5.5;
 
+    // Posisi dinamis kolom B dan S menyesuaikan lebar kolom agar tidak meluber di 4/5 kolom
+    const rightPad = colWidth < 42 ? 3.8 : colWidth < 52 ? 5.5 : colWidth < 70 ? 11.5 : 14.0;
+    const bsGap = colWidth < 42 ? 7.2 : colWidth < 52 ? 9.0 : colWidth < 70 ? 12.0 : 14.0;
+    const padLeft = colWidth < 45 ? 1.8 : 2.5;
+    const showPernyataanHeader = colWidth >= 52;
+
     const startY = curY;
     bsConfig.numbers.forEach((qNum, idx) => {
       const col = Math.floor(idx / itemsPerCol);
       const row = idx % itemsPerCol;
-      const itemX = marginX + col * (colWidth + sectionColGap);
+      const itemX = marginX + col * (colWidth + colGap);
       const cardY = startY + row * rowHeight + 1.0;
 
-      // Bingkai kartu untuk kerapian 3 kolom
+      const sCenterX = itemX + colWidth - rightPad;
+      const bCenterX = sCenterX - bsGap;
+
+      // Bingkai kartu
       doc.setDrawColor(theme.cardBorder[0], theme.cardBorder[1], theme.cardBorder[2]);
       doc.setLineWidth(0.2);
       doc.roundedRect(itemX, cardY, colWidth, cardHeight, 1.2, 1.2, 'S');
@@ -639,29 +671,30 @@ export function generateLjkPdfAndTemplate(options: GenerateLjkOptions): {
 
       doc.setTextColor(theme.textPrimary[0], theme.textPrimary[1], theme.textPrimary[2]);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6.8);
-      doc.text(`Soal ${qNum}:`, itemX + 2.5, cardY + 2.8);
+      doc.setFontSize(colWidth < 45 ? 6.0 : 6.8);
+      doc.text(`Soal ${qNum}:`, itemX + padLeft, cardY + 2.8);
 
       doc.setFontSize(5.8);
       doc.setTextColor(theme.textMuted[0], theme.textMuted[1], theme.textMuted[2]);
-      doc.text('Pernyataan', itemX + 16, cardY + 2.8);
-      doc.text('B', itemX + 37, cardY + 2.8, { align: 'center' });
-      doc.text('S', itemX + 49, cardY + 2.8, { align: 'center' });
+      if (showPernyataanHeader) {
+        doc.text('Pernyataan', itemX + (colWidth >= 85 ? 20 : 16), cardY + 2.8);
+      }
+      doc.text('B', bCenterX, cardY + 2.8, { align: 'center' });
+      doc.text('S', sCenterX, cardY + 2.8, { align: 'center' });
 
       let stmtY = cardY + 4.2 + 2.6;
-      statements.forEach((stmt, sIdx) => {
+      statements.forEach((_, sIdx) => {
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(6.2);
+        doc.setFontSize(colWidth < 45 ? 5.6 : 6.2);
         doc.setTextColor(theme.textPrimary[0], theme.textPrimary[1], theme.textPrimary[2]);
-        doc.text(`Pern. ${stmt}`, itemX + 2.5, stmtY + 0.6);
+        const stmtLabel = `Pernyataan ${sIdx + 1}`;
+        doc.text(stmtLabel, itemX + padLeft, stmtY + 0.6);
 
         // Benar bubble
-        const bX = itemX + 37;
-        drawBubble(qNum, 'B', bX, stmtY, 'BENAR_SALAH', sIdx);
+        drawBubble(qNum, 'B', bCenterX, stmtY, 'BENAR_SALAH', sIdx);
 
         // Salah bubble
-        const sX = itemX + 49;
-        drawBubble(qNum, 'S', sX, stmtY, 'BENAR_SALAH', sIdx);
+        drawBubble(qNum, 'S', sCenterX, stmtY, 'BENAR_SALAH', sIdx);
 
         stmtY += 4.6;
       });
@@ -675,7 +708,7 @@ export function generateLjkPdfAndTemplate(options: GenerateLjkOptions): {
     const pairsCount = matchConfig.subItemsCount || 4;
     const pairs = Array.from({ length: pairsCount }, (_, i) => i + 1);
     const totalMatch = matchConfig.numbers.length;
-    const { colWidth, itemsPerCol } = getThreeColMetrics(totalMatch);
+    const { colWidth, itemsPerCol } = getSectionColMetrics(totalMatch, 3);
     const optHeaders = ['A', 'B', 'C', 'D', 'E'];
     const optColSpacing = 5.0; // 5 pilihan (A-E)
     const headerHeight = 4.8;
