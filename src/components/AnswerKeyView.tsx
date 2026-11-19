@@ -67,6 +67,7 @@ export const AnswerKeyView: React.FC<AnswerKeyViewProps> = ({
 
   // Confirm delete modal state
   const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState<boolean>(false);
+  const [deleteTargetKeyId, setDeleteTargetKeyId] = useState<string>('');
 
   // Scan Master LJK Modal State
   const [isScanModalOpen, setIsScanModalOpen] = useState<boolean>(false);
@@ -99,18 +100,10 @@ export const AnswerKeyView: React.FC<AnswerKeyViewProps> = ({
         });
       }
       setKeyState(copy);
+    } else {
+      setKeyState(null);
     }
   }, [selectedKeyId, activeKey]);
-
-  if (!keyState || !activeTemplate) {
-    return (
-      <div className="p-12 text-center text-slate-400">
-        <KeyRound className="w-12 h-12 mx-auto text-slate-300 stroke-[1.5] mb-2" />
-        <h3 className="font-bold text-slate-700 text-sm">Belum Ada Kunci Jawaban</h3>
-        <p className="text-xs text-slate-500 mt-1">Buat template LJK terlebih dahulu untuk menyusun kunci jawaban.</p>
-      </div>
-    );
-  }
 
   // Handle single PG option selection
   const handleSetPgKey = (qNum: number, opt: string) => {
@@ -198,9 +191,9 @@ export const AnswerKeyView: React.FC<AnswerKeyViewProps> = ({
     const baseTpl = activeTemplate || templates[0];
     setNewSubject('');
     setNewTemplateId(baseTpl?.templateId || '');
-    setNewGrade(baseTpl?.exam?.kelas || keyState.grade || 'IX');
-    setNewExamTitle(baseTpl?.exam?.namaUjian || keyState.examTitle || 'Penilaian Sumatif Akhir Jenjang (PSAJ)');
-    setNewAcademicYear(baseTpl?.exam?.tahunPelajaran || keyState.academicYear || '2025/2026');
+    setNewGrade(baseTpl?.exam?.kelas || keyState?.grade || 'IX');
+    setNewExamTitle(baseTpl?.exam?.namaUjian || keyState?.examTitle || 'Penilaian Sumatif Akhir Jenjang (PSAJ)');
+    setNewAcademicYear(baseTpl?.exam?.tahunPelajaran || keyState?.academicYear || '2025/2026');
     setIsAddModalOpen(true);
   };
 
@@ -265,17 +258,21 @@ export const AnswerKeyView: React.FC<AnswerKeyViewProps> = ({
     }
   };
 
-  // Delete active answer key (only when >1 key exists)
+  // Delete selected answer key for a specific subject
   const handleConfirmDeleteKey = async () => {
-    if (!activeKey || answerKeys.length <= 1) return;
+    const targetKey = answerKeys.find(k => k.keyId === deleteTargetKeyId) || activeKey;
+    if (!targetKey) return;
     try {
-      const deletedId = activeKey.keyId;
-      const deletedSubject = activeKey.subject;
+      const deletedId = targetKey.keyId;
+      const deletedSubject = targetKey.subject;
       await deleteAnswerKey(deletedId);
       onAnswerKeyDeleted(deletedId);
       const remaining = answerKeys.filter(k => k.keyId !== deletedId);
       if (remaining[0]) {
         setSelectedKeyId(remaining[0].keyId);
+      } else {
+        setSelectedKeyId('');
+        setKeyState(null);
       }
       setIsConfirmDeleteOpen(false);
       setNotification({
@@ -287,6 +284,160 @@ export const AnswerKeyView: React.FC<AnswerKeyViewProps> = ({
       setNotification({ type: 'error', message: err.message || 'Gagal menghapus kunci jawaban' });
     }
   };
+
+  const addSubjectModal = isAddModalOpen ? (
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-2xs z-50 flex items-center justify-center p-4">
+      <form
+        onSubmit={handleCreateNewKey}
+        className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl border border-slate-100 text-left"
+      >
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
+              <Plus className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="font-bold text-sm text-slate-800">Tambah Kunci Mata Pelajaran</h3>
+              <p className="text-[11px] text-slate-500">Buat daftar kunci jawaban baru untuk mata pelajaran lain</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsAddModalOpen(false)}
+            className="text-slate-400 hover:text-slate-600 font-bold"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="space-y-3 text-xs">
+          <div>
+            <label className="block font-bold text-slate-700 mb-1">Mata Pelajaran *</label>
+            <input
+              type="text"
+              required
+              value={newSubject}
+              onChange={e => setNewSubject(e.target.value)}
+              placeholder="Contoh: Matematika, Bahasa Indonesia, Bahasa Inggris"
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block font-bold text-slate-700 mb-1">Desain Template LJK Acuan</label>
+            <select
+              value={newTemplateId}
+              onChange={e => {
+                const tplId = e.target.value;
+                setNewTemplateId(tplId);
+                const tpl = templates.find(t => t.templateId === tplId);
+                if (tpl?.exam) {
+                  if (tpl.exam.kelas) setNewGrade(tpl.exam.kelas);
+                  if (tpl.exam.namaUjian) setNewExamTitle(tpl.exam.namaUjian);
+                  if (tpl.exam.tahunPelajaran) setNewAcademicYear(tpl.exam.tahunPelajaran);
+                }
+              }}
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold"
+            >
+              {templates.map(t => (
+                <option key={t.templateId} value={t.templateId}>
+                  {t.name} ({t.questions.reduce((a, b) => a + (b.enabled ? b.numbers.length : 0), 0)} soal)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Kelas / Jenjang</label>
+              <input
+                type="text"
+                value={newGrade}
+                onChange={e => setNewGrade(e.target.value)}
+                placeholder="Contoh: IX"
+                className="w-full px-3 py-2 rounded-lg border border-slate-300"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Tahun Pelajaran</label>
+              <input
+                type="text"
+                value={newAcademicYear}
+                onChange={e => setNewAcademicYear(e.target.value)}
+                placeholder="Contoh: 2025/2026"
+                className="w-full px-3 py-2 rounded-lg border border-slate-300"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-bold text-slate-700 mb-1">Nama Ujian</label>
+            <input
+              type="text"
+              value={newExamTitle}
+              onChange={e => setNewExamTitle(e.target.value)}
+              placeholder="Contoh: Penilaian Sumatif Akhir Jenjang (PSAJ)"
+              className="w-full px-3 py-2 rounded-lg border border-slate-300"
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={() => setIsAddModalOpen(false)}
+            className="px-3.5 py-2 rounded-lg border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-slate-50"
+          >
+            Batal
+          </button>
+          <button
+            type="submit"
+            className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Buat Kunci Mapel</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  ) : null;
+
+  if (!keyState || !activeTemplate) {
+    return (
+      <div className="p-12 text-center text-slate-400">
+        {notification && (
+          <div
+            className={`max-w-lg mx-auto mb-6 p-3.5 rounded-xl text-xs font-semibold flex items-center justify-between ${
+              notification.type === 'success'
+                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                : 'bg-rose-50 text-rose-800 border border-rose-200'
+            }`}
+          >
+            <span>{notification.message}</span>
+            <button onClick={() => setNotification(null)}>✕</button>
+          </div>
+        )}
+        <KeyRound className="w-12 h-12 mx-auto text-slate-300 stroke-[1.5] mb-2" />
+        <h3 className="font-bold text-slate-700 text-sm">Belum Ada Kunci Jawaban</h3>
+        <p className="text-xs text-slate-500 mt-1">
+          {templates.length > 0
+            ? 'Tambahkan kunci jawaban untuk mata pelajaran yang diinginkan.'
+            : 'Buat template LJK terlebih dahulu untuk menyusun kunci jawaban.'}
+        </p>
+        {templates.length > 0 && (
+          <button
+            type="button"
+            onClick={handleOpenAddModal}
+            className="mt-4 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Tambah Kunci Mata Pelajaran</span>
+          </button>
+        )}
+        {addSubjectModal}
+      </div>
+    );
+  }
 
   // Process master LJK scan from canvas
   const processMasterLjkCanvas = async (canvas: HTMLCanvasElement, sourceName: string) => {
@@ -591,14 +742,18 @@ export const AnswerKeyView: React.FC<AnswerKeyViewProps> = ({
               <span>Tambah Mapel</span>
             </button>
 
-            {answerKeys.length > 1 && (
+            {activeKey && (
               <button
                 type="button"
-                onClick={() => setIsConfirmDeleteOpen(true)}
-                className="p-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition"
+                onClick={() => {
+                  setDeleteTargetKeyId(activeKey.keyId);
+                  setIsConfirmDeleteOpen(true);
+                }}
+                className="px-2.5 py-1.5 rounded-lg border border-rose-200 bg-rose-50/70 text-rose-700 hover:bg-rose-100 text-xs font-bold flex items-center gap-1 transition"
                 title={`Hapus kunci mata pelajaran ${keyState.subject}`}
               >
                 <Trash2 className="w-3.5 h-3.5" />
+                <span>Hapus Mapel</span>
               </button>
             )}
           </div>
@@ -1010,133 +1165,44 @@ export const AnswerKeyView: React.FC<AnswerKeyViewProps> = ({
         </div>
       )}
 
-      {/* MODAL: Tambah Kunci Jawaban Mata Pelajaran Baru */}
-      {isAddModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-2xs z-50 flex items-center justify-center p-4">
-          <form
-            onSubmit={handleCreateNewKey}
-            className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl border border-slate-100"
-          >
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
-                  <Plus className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm text-slate-800">Tambah Kunci Mata Pelajaran</h3>
-                  <p className="text-[11px] text-slate-500">Buat daftar kunci jawaban baru untuk mata pelajaran lain</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsAddModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 font-bold"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Mata Pelajaran *</label>
-                <input
-                  type="text"
-                  required
-                  value={newSubject}
-                  onChange={e => setNewSubject(e.target.value)}
-                  placeholder="Contoh: Matematika, Bahasa Indonesia, Bahasa Inggris"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Desain Template LJK Acuan</label>
-                <select
-                  value={newTemplateId}
-                  onChange={e => {
-                    const tplId = e.target.value;
-                    setNewTemplateId(tplId);
-                    const tpl = templates.find(t => t.templateId === tplId);
-                    if (tpl?.exam) {
-                      if (tpl.exam.kelas) setNewGrade(tpl.exam.kelas);
-                      if (tpl.exam.namaUjian) setNewExamTitle(tpl.exam.namaUjian);
-                      if (tpl.exam.tahunPelajaran) setNewAcademicYear(tpl.exam.tahunPelajaran);
-                    }
-                  }}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold"
-                >
-                  {templates.map(t => (
-                    <option key={t.templateId} value={t.templateId}>
-                      {t.name} ({t.questions.reduce((a, b) => a + (b.enabled ? b.numbers.length : 0), 0)} soal)
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Kelas / Jenjang</label>
-                  <input
-                    type="text"
-                    value={newGrade}
-                    onChange={e => setNewGrade(e.target.value)}
-                    placeholder="Contoh: IX"
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Tahun Pelajaran</label>
-                  <input
-                    type="text"
-                    value={newAcademicYear}
-                    onChange={e => setNewAcademicYear(e.target.value)}
-                    placeholder="Contoh: 2025/2026"
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Nama Ujian</label>
-                <input
-                  type="text"
-                  value={newExamTitle}
-                  onChange={e => setNewExamTitle(e.target.value)}
-                  placeholder="Contoh: Penilaian Sumatif Akhir Jenjang (PSAJ)"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setIsAddModalOpen(false)}
-                className="px-3.5 py-2 rounded-lg border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-slate-50"
-              >
-                Batal
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Buat Kunci Mapel</span>
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+      {addSubjectModal}
 
       {/* MODAL: Konfirmasi Hapus Kunci Mata Pelajaran */}
       {isConfirmDeleteOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-2xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-sm w-full p-6 space-y-4 shadow-xl border border-slate-100">
-            <h3 className="font-bold text-sm text-slate-800">Hapus Kunci Mata Pelajaran?</h3>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Anda akan menghapus kunci jawaban untuk mata pelajaran{' '}
-              <span className="font-bold text-slate-800">{keyState.subject} ({keyState.grade})</span>. Tindakan ini tidak dapat dibatalkan.
-            </p>
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center">
+                <Trash2 className="w-4 h-4" />
+              </div>
+              <h3 className="font-bold text-sm text-slate-800">Hapus Kunci Mata Pelajaran</h3>
+            </div>
+
+            {answerKeys.length > 1 ? (
+              <div className="space-y-2 text-xs">
+                <label className="block font-bold text-slate-700">Pilih mata pelajaran yang akan dihapus:</label>
+                <select
+                  value={deleteTargetKeyId || activeKey?.keyId || ''}
+                  onChange={e => setDeleteTargetKeyId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold"
+                >
+                  {answerKeys.map(k => (
+                    <option key={k.keyId} value={k.keyId}>
+                      {k.subject} ({k.grade} - {k.academicYear})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-500">
+                  Kunci jawaban untuk mata pelajaran yang dipilih akan dihapus permanen.
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Anda akan menghapus kunci jawaban untuk mata pelajaran{' '}
+                <span className="font-bold text-slate-800">{keyState.subject} ({keyState.grade})</span>. Tindakan ini tidak dapat dibatalkan.
+              </p>
+            )}
+
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
@@ -1148,9 +1214,10 @@ export const AnswerKeyView: React.FC<AnswerKeyViewProps> = ({
               <button
                 type="button"
                 onClick={handleConfirmDeleteKey}
-                className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold"
+                className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold flex items-center gap-1.5"
               >
-                Hapus Kunci
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Hapus Kunci</span>
               </button>
             </div>
           </div>
