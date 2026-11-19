@@ -63,7 +63,14 @@ export const OmrScannerView: React.FC<OmrScannerViewProps> = ({
     templates[0]?.templateId || ''
   );
   const activeTemplate = templates.find(t => t.templateId === selectedTemplateId) || templates[0];
-  const activeKey = answerKeys.find(k => k.templateId === activeTemplate?.templateId) || answerKeys[0] || null;
+  const [selectedKeyId, setSelectedKeyId] = useState<string>(
+    answerKeys.find(k => k.templateId === (templates[0]?.templateId || ''))?.keyId || answerKeys[0]?.keyId || ''
+  );
+  const activeKey =
+    answerKeys.find(k => k.keyId === selectedKeyId) ||
+    answerKeys.find(k => k.templateId === activeTemplate?.templateId) ||
+    answerKeys[0] ||
+    null;
 
   // Sensitivity threshold
   const [threshold, setThreshold] = useState<number>(settings.omrThreshold || 0.40);
@@ -108,6 +115,14 @@ export const OmrScannerView: React.FC<OmrScannerViewProps> = ({
       setSelectedTemplateId(templates[0].templateId);
     }
   }, [templates]);
+
+  // Keep selectedKeyId valid when answerKeys change
+  useEffect(() => {
+    if (answerKeys.length > 0 && !answerKeys.some(k => k.keyId === selectedKeyId)) {
+      const matching = answerKeys.find(k => k.templateId === selectedTemplateId);
+      setSelectedKeyId(matching?.keyId || answerKeys[0].keyId);
+    }
+  }, [answerKeys, selectedKeyId, selectedTemplateId]);
 
   // Handle uploaded images & PDFs
   const handleFilesSelected = async (files: FileList | null) => {
@@ -521,13 +536,20 @@ export const OmrScannerView: React.FC<OmrScannerViewProps> = ({
         </div>
       </div>
 
-      {/* Control Bar: Select Template & Sensitivitas OMR */}
+      {/* Control Bar: Select Template, Kunci Jawaban Mapel & Sensitivitas OMR */}
       <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5 shadow-2xs grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
-        <div className="md:col-span-5">
+        <div className="md:col-span-3">
           <label className="block text-xs font-bold text-slate-700 mb-1">Pilih Template LJK Target</label>
           <select
             value={selectedTemplateId}
-            onChange={e => setSelectedTemplateId(e.target.value)}
+            onChange={e => {
+              const newTplId = e.target.value;
+              setSelectedTemplateId(newTplId);
+              const matchingKey = answerKeys.find(k => k.templateId === newTplId);
+              if (matchingKey) {
+                setSelectedKeyId(matchingKey.keyId);
+              }
+            }}
             className="w-full px-3 py-2.5 rounded-lg border border-slate-300 text-xs font-semibold bg-white focus:ring-2 focus:ring-blue-500/20"
           >
             {templates.map(t => (
@@ -538,9 +560,24 @@ export const OmrScannerView: React.FC<OmrScannerViewProps> = ({
           </select>
         </div>
 
-        <div className="md:col-span-4">
+        <div className="md:col-span-3">
+          <label className="block text-xs font-bold text-slate-700 mb-1">Kunci Jawaban (Mata Pelajaran)</label>
+          <select
+            value={activeKey?.keyId || selectedKeyId}
+            onChange={e => setSelectedKeyId(e.target.value)}
+            className="w-full px-3 py-2.5 rounded-lg border border-slate-300 text-xs font-semibold bg-white focus:ring-2 focus:ring-blue-500/20"
+          >
+            {answerKeys.map(k => (
+              <option key={k.keyId} value={k.keyId}>
+                {k.subject} ({k.grade} - {k.academicYear})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="md:col-span-3">
           <div className="flex justify-between text-xs font-bold text-slate-700 mb-1">
-            <span>Ambang Keterisian (OMR Threshold)</span>
+            <span>Ambang Keterisian (OMR)</span>
             <span className="font-mono text-blue-600 font-bold">{Math.round(threshold * 100)}%</span>
           </div>
           <input
@@ -553,9 +590,9 @@ export const OmrScannerView: React.FC<OmrScannerViewProps> = ({
             className="w-full accent-blue-600 cursor-pointer h-2 bg-slate-200 rounded-lg"
           />
           <div className="flex justify-between text-[10px] text-slate-400 mt-0.5">
-            <span>Lebih Sensitif</span>
+            <span>Sensitif</span>
             <span>Standar 2B</span>
-            <span>Ketat (Pekat)</span>
+            <span>Ketat</span>
           </div>
         </div>
 

@@ -31,7 +31,7 @@ import {
 } from '../types/ljk';
 import { saveAnswerKey, deleteAnswerKey } from '../services/storage';
 import { processOmrSheet, imageToCanvas, loadImage } from '../services/omrEngine';
-import { parseAnswerKeyExcel, downloadSampleAnswerKeyExcel } from '../services/excelService';
+import { parseAnswerKeyExcel, downloadAnswerKeyTemplateExcel } from '../services/excelService';
 
 interface AnswerKeyViewProps {
   answerKeys: AnswerKey[];
@@ -57,6 +57,17 @@ export const AnswerKeyView: React.FC<AnswerKeyViewProps> = ({
   const [keyState, setKeyState] = useState<AnswerKey | null>(null);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  // Add new subject key modal state
+  const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
+  const [newSubject, setNewSubject] = useState<string>('');
+  const [newGrade, setNewGrade] = useState<string>(activeTemplate?.exam?.kelas || 'IX');
+  const [newExamTitle, setNewExamTitle] = useState<string>(activeTemplate?.exam?.namaUjian || 'Penilaian Sumatif Akhir Jenjang (PSAJ)');
+  const [newAcademicYear, setNewAcademicYear] = useState<string>(activeTemplate?.exam?.tahunPelajaran || '2025/2026');
+  const [newTemplateId, setNewTemplateId] = useState<string>(activeTemplate?.templateId || templates[0]?.templateId || '');
+
+  // Confirm delete modal state
+  const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState<boolean>(false);
+
   // Scan Master LJK Modal State
   const [isScanModalOpen, setIsScanModalOpen] = useState<boolean>(false);
   const [isProcessingScan, setIsProcessingScan] = useState<boolean>(false);
@@ -65,6 +76,12 @@ export const AnswerKeyView: React.FC<AnswerKeyViewProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const excelInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (answerKeys.length > 0 && !answerKeys.some(k => k.keyId === selectedKeyId)) {
+      setSelectedKeyId(answerKeys[0].keyId);
+    }
+  }, [answerKeys, selectedKeyId]);
 
   useEffect(() => {
     if (activeKey) {
@@ -163,15 +180,111 @@ export const AnswerKeyView: React.FC<AnswerKeyViewProps> = ({
     Object.values(keyState.questions).forEach(q => {
       totalPts += q.points || 0;
     });
-    keyState.totalMaxScore = totalPts;
+    const updatedKey: AnswerKey = { ...keyState, totalMaxScore: totalPts };
 
     try {
-      await saveAnswerKey(keyState);
-      onAnswerKeyUpdated(keyState);
-      setNotification({ type: 'success', message: 'Kunci jawaban berhasil disimpan.' });
+      await saveAnswerKey(updatedKey);
+      onAnswerKeyUpdated(updatedKey);
+      setKeyState(updatedKey);
+      setNotification({ type: 'success', message: `Kunci jawaban mata pelajaran "${updatedKey.subject}" berhasil disimpan.` });
       setTimeout(() => setNotification(null), 3000);
     } catch (err: any) {
       setNotification({ type: 'error', message: err.message || 'Gagal menyimpan kunci' });
+    }
+  };
+
+  // Open add subject modal with defaults from selected template
+  const handleOpenAddModal = () => {
+    const baseTpl = activeTemplate || templates[0];
+    setNewSubject('');
+    setNewTemplateId(baseTpl?.templateId || '');
+    setNewGrade(baseTpl?.exam?.kelas || keyState.grade || 'IX');
+    setNewExamTitle(baseTpl?.exam?.namaUjian || keyState.examTitle || 'Penilaian Sumatif Akhir Jenjang (PSAJ)');
+    setNewAcademicYear(baseTpl?.exam?.tahunPelajaran || keyState.academicYear || '2025/2026');
+    setIsAddModalOpen(true);
+  };
+
+  // Create new answer key for a subject
+  const handleCreateNewKey = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const subjectTrimmed = newSubject.trim();
+    if (!subjectTrimmed) {
+      setNotification({ type: 'error', message: 'Nama mata pelajaran wajib diisi.' });
+      return;
+    }
+
+    const chosenTemplate = templates.find(t => t.templateId === newTemplateId) || templates[0];
+    if (!chosenTemplate) return;
+
+    const questions: Record<number, SingleQuestionKey> = {};
+    let totalPts = 0;
+
+    chosenTemplate.questions.forEach(cfg => {
+      if (!cfg.enabled) return;
+      const pts = cfg.pointsPerItem ?? (cfg.type.startsWith('URAIAN') ? 5 : 2);
+      cfg.numbers.forEach(qNum => {
+        questions[qNum] = {
+          questionNumber: qNum,
+          type: cfg.type,
+          points: pts,
+          correctAnswer:
+            cfg.type === 'PG_KOMPLEKS'
+              ? []
+              : cfg.type === 'BENAR_SALAH' || cfg.type === 'MENJODOHKAN'
+              ? {}
+              : ''
+        };
+        totalPts += pts;
+      });
+    });
+
+    const newKey: AnswerKey = {
+      keyId: `KEY-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      templateId: chosenTemplate.templateId,
+      examTitle: newExamTitle.trim() || chosenTemplate.exam?.namaUjian || 'Ujian Sekolah',
+      subject: subjectTrimmed,
+      grade: newGrade.trim() || chosenTemplate.exam?.kelas || 'IX',
+      academicYear: newAcademicYear.trim() || chosenTemplate.exam?.tahunPelajaran || '2025/2026',
+      complexScoringMode: 'full_only',
+      questions,
+      totalMaxScore: totalPts
+    };
+
+    try {
+      await saveAnswerKey(newKey);
+      onAnswerKeyUpdated(newKey);
+      setSelectedKeyId(newKey.keyId);
+      setIsAddModalOpen(false);
+      setNotification({
+        type: 'success',
+        message: `Kunci jawaban mata pelajaran "${newKey.subject}" berhasil dibuat. Silakan isi kunci secara manual, scan master, atau import Excel.`
+      });
+      setTimeout(() => setNotification(null), 5000);
+    } catch (err: any) {
+      setNotification({ type: 'error', message: err.message || 'Gagal menambah kunci mata pelajaran baru' });
+    }
+  };
+
+  // Delete active answer key (only when >1 key exists)
+  const handleConfirmDeleteKey = async () => {
+    if (!activeKey || answerKeys.length <= 1) return;
+    try {
+      const deletedId = activeKey.keyId;
+      const deletedSubject = activeKey.subject;
+      await deleteAnswerKey(deletedId);
+      onAnswerKeyDeleted(deletedId);
+      const remaining = answerKeys.filter(k => k.keyId !== deletedId);
+      if (remaining[0]) {
+        setSelectedKeyId(remaining[0].keyId);
+      }
+      setIsConfirmDeleteOpen(false);
+      setNotification({
+        type: 'success',
+        message: `Kunci jawaban mata pelajaran "${deletedSubject}" berhasil dihapus.`
+      });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (err: any) {
+      setNotification({ type: 'error', message: err.message || 'Gagal menghapus kunci jawaban' });
     }
   };
 
@@ -296,43 +409,87 @@ export const AnswerKeyView: React.FC<AnswerKeyViewProps> = ({
     try {
       const parsedKeys = await parseAnswerKeyExcel(file);
       const copy = JSON.parse(JSON.stringify(keyState)) as AnswerKey;
+      if (!copy.questions) copy.questions = {};
       let count = 0;
 
       for (const [qNumStr, item] of Object.entries(parsedKeys)) {
         const qNum = parseInt(qNumStr, 10);
-        if (copy.questions[qNum]) {
-          const qType = copy.questions[qNum].type;
-          let ans = item.answer;
+        if (isNaN(qNum) || qNum <= 0) continue;
 
-          if (qType === 'PG_KOMPLEKS') {
-            ans = Array.isArray(ans)
-              ? ans
-              : typeof ans === 'string'
-              ? ans.split(/[,;\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean)
-              : [String(ans)];
-          } else if (qType === 'BENAR_SALAH' || qType === 'MENJODOHKAN') {
-            if (typeof ans !== 'object' || ans === null) {
-              const parts = String(ans).split(/[,;\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
-              const obj: Record<number, string> = {};
-              parts.forEach((p, idx) => { obj[idx] = p; });
-              ans = obj;
-            }
-          }
+        const templateCfg = activeTemplate.questions.find(
+          cfg => cfg.enabled && cfg.numbers.includes(qNum)
+        );
+        const qType = copy.questions[qNum]?.type || templateCfg?.type || (item.type as SingleQuestionKey['type'] | undefined);
+        if (!qType) continue;
 
-          copy.questions[qNum].correctAnswer = ans;
-          if (item.points !== undefined) copy.questions[qNum].points = item.points;
-          count++;
+        if (!copy.questions[qNum]) {
+          copy.questions[qNum] = {
+            questionNumber: qNum,
+            type: qType,
+            points: templateCfg?.pointsPerItem ?? 2,
+            correctAnswer: ''
+          };
         }
+
+        let ans: any = item.answer;
+
+        if (qType === 'PG') {
+          ans = Array.isArray(ans)
+            ? String(ans[0] ?? '').trim().toUpperCase()
+            : typeof ans === 'object' && ans !== null
+            ? String(Object.values(ans)[0] ?? '').trim().toUpperCase()
+            : String(ans ?? '').trim().toUpperCase();
+        } else if (qType === 'PG_KOMPLEKS') {
+          const arr = Array.isArray(ans)
+            ? ans.map(s => String(s).trim().toUpperCase()).filter(Boolean)
+            : typeof ans === 'string'
+            ? (ans.includes(',') || ans.includes(';') || /\s+/.test(ans)
+                ? ans.split(/[,;\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean)
+                : ans.trim().toUpperCase().split('').filter(Boolean))
+            : [String(ans).trim().toUpperCase()];
+          ans = Array.from(new Set(arr)).sort();
+        } else if (qType === 'BENAR_SALAH' || qType === 'MENJODOHKAN') {
+          if (typeof ans !== 'object' || ans === null || Array.isArray(ans)) {
+            const rawStr = Array.isArray(ans) ? ans.join(',') : String(ans ?? '').trim().toUpperCase();
+            let parts = rawStr.split(/[,;|\s]+/).map(s => s.trim()).filter(Boolean);
+            if (parts.length === 1 && parts[0].length > 1) {
+              if (qType === 'BENAR_SALAH' && /^[BS]+$/.test(parts[0])) {
+                parts = parts[0].split('');
+              } else if (qType === 'MENJODOHKAN' && /^[A-E]+$/.test(parts[0])) {
+                parts = parts[0].split('');
+              }
+            }
+            const obj: Record<number, string> = {};
+            parts.forEach((p, idx) => {
+              if (qType === 'BENAR_SALAH') {
+                obj[idx] = p === 'BENAR' ? 'B' : p === 'SALAH' ? 'S' : p;
+              } else {
+                obj[idx] = p;
+              }
+            });
+            ans = obj;
+          }
+        } else {
+          ans = Array.isArray(ans) ? ans.join(', ') : String(ans ?? '').trim();
+        }
+
+        copy.questions[qNum].correctAnswer = ans;
+        if (item.points !== undefined) copy.questions[qNum].points = item.points;
+        count++;
       }
 
       setKeyState(copy);
       setNotification({
         type: 'success',
-        message: `Berhasil mengimpor ${count} kunci jawaban dari file Excel.`
+        message: `Berhasil mengimpor ${count} kunci jawaban dari file Excel. Klik "Simpan Kunci" untuk menyimpan.`
       });
       setTimeout(() => setNotification(null), 4000);
     } catch (err: any) {
       setNotification({ type: 'error', message: `Gagal membaca Excel: ${err.message}` });
+    } finally {
+      if (e.target) {
+        e.target.value = '';
+      }
     }
   };
 
@@ -411,17 +568,40 @@ export const AnswerKeyView: React.FC<AnswerKeyViewProps> = ({
 
         <div className="flex flex-wrap items-center gap-2.5">
           {/* Template / Key Selector */}
-          <select
-            value={selectedKeyId}
-            onChange={e => setSelectedKeyId(e.target.value)}
-            className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold bg-white"
-          >
-            {answerKeys.map(k => (
-              <option key={k.keyId} value={k.keyId}>
-                {k.subject} ({k.grade} - {k.academicYear})
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center gap-1.5">
+            <select
+              value={activeKey?.keyId || selectedKeyId}
+              onChange={e => setSelectedKeyId(e.target.value)}
+              className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold bg-white"
+            >
+              {answerKeys.map(k => (
+                <option key={k.keyId} value={k.keyId}>
+                  {k.subject} ({k.grade} - {k.academicYear})
+                </option>
+              ))}
+            </select>
+
+            <button
+              type="button"
+              onClick={handleOpenAddModal}
+              className="px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 text-xs font-bold flex items-center gap-1 transition"
+              title="Tambah kunci jawaban untuk mata pelajaran lain"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Tambah Mapel</span>
+            </button>
+
+            {answerKeys.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setIsConfirmDeleteOpen(true)}
+                className="p-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition"
+                title={`Hapus kunci mata pelajaran ${keyState.subject}`}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
 
           {/* New Feature Button: Scan / Upload LJK Master */}
           <button
@@ -432,6 +612,17 @@ export const AnswerKeyView: React.FC<AnswerKeyViewProps> = ({
           >
             <Scan className="w-4 h-4 text-sky-600" />
             <span>Scan / Upload LJK Master</span>
+          </button>
+
+          {/* Download Template Excel */}
+          <button
+            type="button"
+            onClick={() => downloadAnswerKeyTemplateExcel(activeTemplate, keyState)}
+            className="px-3 py-2 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold flex items-center gap-1.5 transition"
+            title="Download template Excel kunci jawaban sesuai desain LJK aktif"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Template Kunci Excel</span>
           </button>
 
           {/* Import Excel */}
@@ -501,7 +692,7 @@ export const AnswerKeyView: React.FC<AnswerKeyViewProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-8 gap-3">
             {cfg.numbers.map(qNum => {
               const currentAns = keyState.questions[qNum]?.correctAnswer;
-              const options = ['A', 'B', 'C', 'D'].slice(0, cfg.optionsCount || 4);
+              const options = ['A', 'B', 'C', 'D', 'E'].slice(0, cfg.optionsCount || 4);
 
               return (
                 <div key={qNum} className="p-2.5 rounded-lg border border-slate-200 bg-slate-50/60 text-center">
@@ -546,7 +737,7 @@ export const AnswerKeyView: React.FC<AnswerKeyViewProps> = ({
                 : typeof rawAns === 'string'
                 ? rawAns.split(/[,;\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean)
                 : [];
-              const options = ['A', 'B', 'C', 'D'];
+              const options = ['A', 'B', 'C', 'D', 'E'].slice(0, cfg.optionsCount || 4);
 
               return (
                 <div key={qNum} className="p-3 rounded-lg border border-slate-200 bg-slate-50/60">
@@ -603,7 +794,7 @@ export const AnswerKeyView: React.FC<AnswerKeyViewProps> = ({
                 rawBs.split(/[,;\s]+/).filter(Boolean).forEach((v, idx) => { curMap[idx] = v.trim().toUpperCase(); });
               }
               const stmtsCount = cfg.subItemsCount || 3;
-              const stmts = Array.from({ length: stmtsCount }, (_, i) => `Pernyataan ${String.fromCharCode(65 + i)}`);
+              const stmts = Array.from({ length: stmtsCount }, (_, i) => `Pernyataan ${i + 1}`);
 
               return (
                 <div key={qNum} className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/60 space-y-2">
@@ -664,7 +855,7 @@ export const AnswerKeyView: React.FC<AnswerKeyViewProps> = ({
               }
               const pairsCount = cfg.subItemsCount || 4;
               const pairs = Array.from({ length: pairsCount }, (_, i) => i + 1);
-              const opts = ['A', 'B', 'C', 'D', 'E'];
+              const opts = ['A', 'B', 'C', 'D', 'E'].slice(0, cfg.optionsCount || 5);
 
               return (
                 <div key={qNum} className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/60 space-y-2">
@@ -799,11 +990,11 @@ export const AnswerKeyView: React.FC<AnswerKeyViewProps> = ({
                   {/* Download format Excel */}
                   <button
                     type="button"
-                    onClick={downloadSampleAnswerKeyExcel}
+                    onClick={() => downloadAnswerKeyTemplateExcel(activeTemplate, keyState)}
                     className="p-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold flex items-center justify-center gap-2 transition"
                   >
                     <Download className="w-4 h-4 text-slate-600" />
-                    <span>Format File Excel</span>
+                    <span>Template Kunci Excel</span>
                   </button>
                 </div>
 
@@ -815,6 +1006,153 @@ export const AnswerKeyView: React.FC<AnswerKeyViewProps> = ({
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Tambah Kunci Jawaban Mata Pelajaran Baru */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-2xs z-50 flex items-center justify-center p-4">
+          <form
+            onSubmit={handleCreateNewKey}
+            className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl border border-slate-100"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                  <Plus className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-800">Tambah Kunci Mata Pelajaran</h3>
+                  <p className="text-[11px] text-slate-500">Buat daftar kunci jawaban baru untuk mata pelajaran lain</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Mata Pelajaran *</label>
+                <input
+                  type="text"
+                  required
+                  value={newSubject}
+                  onChange={e => setNewSubject(e.target.value)}
+                  placeholder="Contoh: Matematika, Bahasa Indonesia, Bahasa Inggris"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Desain Template LJK Acuan</label>
+                <select
+                  value={newTemplateId}
+                  onChange={e => {
+                    const tplId = e.target.value;
+                    setNewTemplateId(tplId);
+                    const tpl = templates.find(t => t.templateId === tplId);
+                    if (tpl?.exam) {
+                      if (tpl.exam.kelas) setNewGrade(tpl.exam.kelas);
+                      if (tpl.exam.namaUjian) setNewExamTitle(tpl.exam.namaUjian);
+                      if (tpl.exam.tahunPelajaran) setNewAcademicYear(tpl.exam.tahunPelajaran);
+                    }
+                  }}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-semibold"
+                >
+                  {templates.map(t => (
+                    <option key={t.templateId} value={t.templateId}>
+                      {t.name} ({t.questions.reduce((a, b) => a + (b.enabled ? b.numbers.length : 0), 0)} soal)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Kelas / Jenjang</label>
+                  <input
+                    type="text"
+                    value={newGrade}
+                    onChange={e => setNewGrade(e.target.value)}
+                    placeholder="Contoh: IX"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Tahun Pelajaran</label>
+                  <input
+                    type="text"
+                    value={newAcademicYear}
+                    onChange={e => setNewAcademicYear(e.target.value)}
+                    placeholder="Contoh: 2025/2026"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Nama Ujian</label>
+                <input
+                  type="text"
+                  value={newExamTitle}
+                  onChange={e => setNewExamTitle(e.target.value)}
+                  placeholder="Contoh: Penilaian Sumatif Akhir Jenjang (PSAJ)"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsAddModalOpen(false)}
+                className="px-3.5 py-2 rounded-lg border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-slate-50"
+              >
+                Batal
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Buat Kunci Mapel</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* MODAL: Konfirmasi Hapus Kunci Mata Pelajaran */}
+      {isConfirmDeleteOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-2xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 space-y-4 shadow-xl border border-slate-100">
+            <h3 className="font-bold text-sm text-slate-800">Hapus Kunci Mata Pelajaran?</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Anda akan menghapus kunci jawaban untuk mata pelajaran{' '}
+              <span className="font-bold text-slate-800">{keyState.subject} ({keyState.grade})</span>. Tindakan ini tidak dapat dibatalkan.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsConfirmDeleteOpen(false)}
+                className="px-3.5 py-2 rounded-lg border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-slate-50"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteKey}
+                className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold"
+              >
+                Hapus Kunci
+              </button>
+            </div>
           </div>
         </div>
       )}

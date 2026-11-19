@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   BarChart3,
   Download,
@@ -30,17 +30,24 @@ export const ItemAnalysisView: React.FC<ItemAnalysisViewProps> = ({
   templates,
   settings
 }) => {
-  const activeTemplate = templates[0];
-  const activeKey = answerKeys.find(k => k.templateId === activeTemplate?.templateId) || answerKeys[0];
+  const [selectedKeyId, setSelectedKeyId] = useState<string>(answerKeys[0]?.keyId || '');
+  const activeKey = answerKeys.find(k => k.keyId === selectedKeyId) || answerKeys[0];
+  const activeTemplate = templates.find(t => t.templateId === activeKey?.templateId) || templates[0];
+
+  const relevantScans = useMemo(() => {
+    if (answerKeys.length <= 1 || !activeKey) return scans;
+    const filtered = scans.filter(s => s.keyId === activeKey.keyId);
+    return filtered.length > 0 ? filtered : scans;
+  }, [scans, answerKeys.length, activeKey]);
 
   // Psychometric Item Analysis Calculations
   const analysisData = useMemo(() => {
-    if (!activeTemplate || scans.length === 0) return [];
+    if (!activeTemplate || relevantScans.length === 0) return [];
 
-    const totalStudents = scans.length;
+    const totalStudents = relevantScans.length;
 
     // Sort students by total grade for Upper Group (Kelompok Atas) vs Lower Group (Kelompok Bawah)
-    const sortedScans = [...scans].sort((a, b) => b.finalGrade - a.finalGrade);
+    const sortedScans = [...relevantScans].sort((a, b) => b.finalGrade - a.finalGrade);
     const groupSize = Math.max(1, Math.floor(totalStudents * 0.33));
     const upperGroup = sortedScans.slice(0, groupSize);
     const lowerGroup = sortedScans.slice(totalStudents - groupSize);
@@ -66,7 +73,7 @@ export const ItemAnalysisView: React.FC<ItemAnalysisViewProps> = ({
       let upperCorrect = 0;
       let lowerCorrect = 0;
 
-      scans.forEach(scan => {
+      relevantScans.forEach(scan => {
         const qRes = scan.questionResults[qNum];
         if (!qRes || qRes.status === 'KOSONG') {
           blankCount++;
@@ -157,12 +164,12 @@ export const ItemAnalysisView: React.FC<ItemAnalysisViewProps> = ({
         recommendation
       };
     });
-  }, [scans, activeTemplate, activeKey]);
+  }, [relevantScans, activeTemplate, activeKey]);
 
   const handleExport = () => {
     exportItemAnalysisToExcel(
       analysisData,
-      activeTemplate?.name || 'PSAJ 2026',
+      activeKey ? `${activeKey.subject} - ${activeKey.examTitle}` : activeTemplate?.name || 'PSAJ 2026',
       settings
     );
   };
@@ -184,17 +191,33 @@ export const ItemAnalysisView: React.FC<ItemAnalysisViewProps> = ({
         <div>
           <h2 className="text-base font-extrabold text-slate-800">Analisis Butir Soal & Daya Pembeda</h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Sampel: {scans.length} lembar jawaban siswa • Ujian: {activeTemplate?.exam?.namaUjian || 'PSAJ IX'}
+            Sampel: {relevantScans.length} lembar jawaban siswa • Mapel: {activeKey?.subject || '-'} • Ujian: {activeTemplate?.exam?.namaUjian || 'PSAJ IX'}
           </p>
         </div>
 
-        <button
-          onClick={handleExport}
-          className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-sm self-start md:self-auto"
-        >
-          <FileSpreadsheet className="w-4 h-4" />
-          <span>Ekspor Analisis ke Excel</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto">
+          {answerKeys.length > 1 && (
+            <select
+              value={activeKey?.keyId || selectedKeyId}
+              onChange={e => setSelectedKeyId(e.target.value)}
+              className="px-3 py-2 rounded-lg border border-slate-300 text-xs font-semibold bg-white"
+            >
+              {answerKeys.map(k => (
+                <option key={k.keyId} value={k.keyId}>
+                  {k.subject} ({k.grade} - {k.academicYear})
+                </option>
+              ))}
+            </select>
+          )}
+
+          <button
+            onClick={handleExport}
+            className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-sm"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Ekspor Analisis ke Excel</span>
+          </button>
+        </div>
       </div>
 
       {/* Psychometrics Explanation Cards */}

@@ -4,7 +4,7 @@
  */
 
 import * as XLSX from 'xlsx';
-import { Participant, ScanResult, SchoolSettings, AnswerKey } from '../types/ljk';
+import { Participant, ScanResult, SchoolSettings, AnswerKey, OMRTemplate } from '../types/ljk';
 
 /**
  * Exports grade recapitulation to an Excel (.xlsx) file
@@ -290,28 +290,172 @@ export async function parseParticipantsFile(file: File): Promise<Participant[]> 
 }
 
 /**
- * Downloads sample Excel file for Answer Key import
+ * Downloads a dynamic Excel template for Answer Key import tailored to the active LJK template
  */
-export function downloadSampleAnswerKeyExcel() {
+export function downloadAnswerKeyTemplateExcel(template?: OMRTemplate | null, currentKey?: AnswerKey | null) {
   const wb = XLSX.utils.book_new();
-  const sampleData = [
-    ['Nomor Soal', 'Tipe', 'Kunci Jawaban', 'Poin'],
-    [1, 'PG', 'A', 2],
-    [2, 'PG', 'C', 2],
-    [3, 'PG', 'B', 2],
-    [4, 'PG', 'D', 2],
-    [5, 'PG', 'A', 2],
-    [26, 'PG_KOMPLEKS', 'A, C', 2],
-    [27, 'PG_KOMPLEKS', 'B, D', 2],
-    [31, 'BENAR_SALAH', 'B, S, B', 2],
-    [36, 'MENJODOHKAN', 'B, A, D, C', 2],
-    [41, 'URAIAN_SINGKAT', 'Metamorfosis', 5]
+  const rows: any[] = [
+    ['Nomor Soal', 'Tipe', 'Kunci Jawaban', 'Poin', 'Contoh Pengisian', 'Ketentuan Pengisian']
   ];
 
-  const ws = XLSX.utils.aoa_to_sheet(sampleData);
-  ws['!cols'] = [{ wch: 14 }, { wch: 18 }, { wch: 20 }, { wch: 10 }];
+  if (template && Array.isArray(template.questions)) {
+    const enabledSections = template.questions.filter(q => q.enabled && q.numbers.length > 0);
+    const items: { qNum: number; type: string; points: number; optionsCount: number; subItemsCount?: number }[] = [];
+
+    enabledSections.forEach(cfg => {
+      cfg.numbers.forEach(qNum => {
+        items.push({
+          qNum,
+          type: cfg.type,
+          points: currentKey?.questions?.[qNum]?.type === cfg.type && currentKey?.questions?.[qNum]?.points !== undefined
+            ? currentKey.questions[qNum].points
+            : (cfg.pointsPerItem ?? 2),
+          optionsCount: cfg.optionsCount || (cfg.type === 'MENJODOHKAN' ? 5 : 4),
+          subItemsCount: cfg.subItemsCount
+        });
+      });
+    });
+
+    items.sort((a, b) => a.qNum - b.qNum);
+
+    items.forEach(item => {
+      const existingQ = currentKey?.questions?.[item.qNum];
+      const existingAns = existingQ && existingQ.type === item.type ? existingQ.correctAnswer : undefined;
+      const maxOpts = Math.max(1, Math.min(5, item.optionsCount || (item.type === 'MENJODOHKAN' ? 5 : 4)));
+      const allowedOpts = ['A', 'B', 'C', 'D', 'E'].slice(0, maxOpts);
+      let formattedAns = '';
+
+      if (existingAns !== undefined && existingAns !== null) {
+        if (item.type === 'PG') {
+          const val = String(existingAns).trim().toUpperCase();
+          if (allowedOpts.includes(val)) {
+            formattedAns = val;
+          }
+        } else if (item.type === 'PG_KOMPLEKS') {
+          const arr = Array.isArray(existingAns)
+            ? existingAns.map(v => String(v).trim().toUpperCase()).filter(v => allowedOpts.includes(v))
+            : [];
+          if (arr.length > 0) {
+            formattedAns = Array.from(new Set(arr)).sort().join(', ');
+          }
+        } else if (item.type === 'BENAR_SALAH') {
+          const cnt = item.subItemsCount || 3;
+          if (typeof existingAns === 'object' && existingAns !== null) {
+            const vals: string[] = [];
+            let allValid = true;
+            for (let i = 0; i < cnt; i++) {
+              const v = String((existingAns as Record<number, string>)[i] ?? '').trim().toUpperCase();
+              if (v !== 'B' && v !== 'S') {
+                allValid = false;
+                break;
+              }
+              vals.push(v);
+            }
+            if (allValid && vals.length === cnt) {
+              formattedAns = vals.join(', ');
+            }
+          }
+        } else if (item.type === 'MENJODOHKAN') {
+          const cnt = item.subItemsCount || 4;
+          if (typeof existingAns === 'object' && existingAns !== null) {
+            const vals: string[] = [];
+            let allValid = true;
+            for (let i = 0; i < cnt; i++) {
+              const v = String((existingAns as Record<number, string>)[i] ?? '').trim().toUpperCase();
+              if (!allowedOpts.includes(v)) {
+                allValid = false;
+                break;
+              }
+              vals.push(v);
+            }
+            if (allValid && vals.length === cnt) {
+              formattedAns = vals.join(', ');
+            }
+          }
+        } else if (typeof existingAns === 'string') {
+          formattedAns = existingAns.trim();
+        }
+      }
+
+      let example = '';
+      let guide = '';
+      if (item.type === 'PG') {
+        example = allowedOpts[0] || 'A';
+        guide = `Isi tepat 1 huruf (${allowedOpts.join('/')})`;
+      } else if (item.type === 'PG_KOMPLEKS') {
+        example = allowedOpts.length >= 3 ? `${allowedOpts[0]}, ${allowedOpts[2]}` : allowedOpts.slice(0, 2).join(', ');
+        guide = `Pilih >1 huruf (${allowedOpts.join('/')}), pisahkan dengan koma`;
+      } else if (item.type === 'BENAR_SALAH') {
+        const cnt = item.subItemsCount || 3;
+        example = Array.from({ length: cnt }, (_, i) => (i % 2 === 0 ? 'B' : 'S')).join(', ');
+        guide = `Isi tepat ${cnt} huruf B/S berurutan untuk Pernyataan 1–${cnt}, pisah koma`;
+      } else if (item.type === 'MENJODOHKAN') {
+        const cnt = item.subItemsCount || 4;
+        example = Array.from({ length: cnt }, (_, i) => allowedOpts[i % allowedOpts.length]).join(', ');
+        guide = `Isi tepat ${cnt} huruf pasangan (${allowedOpts[0]}-${allowedOpts[allowedOpts.length - 1]}) berurutan, pisah koma`;
+      } else if (item.type === 'URAIAN_PANJANG') {
+        example = 'Menjelaskan langkah penyelesaian secara runtut';
+        guide = 'Tulis ringkasan rubrik penilaian uraian';
+      } else {
+        example = 'Metamorfosis Sempurna';
+        guide = 'Tulis kata/frasa singkat pedoman penilaian';
+      }
+
+      rows.push([item.qNum, item.type, formattedAns, item.points, example, guide]);
+    });
+  } else {
+    rows.push(
+      [1, 'PG', '', 2, 'A', 'Isi tepat 1 huruf (A/B/C/D/E)'],
+      [2, 'PG', '', 2, 'C', 'Isi tepat 1 huruf (A/B/C/D/E)'],
+      [3, 'PG', '', 2, 'B', 'Isi tepat 1 huruf (A/B/C/D/E)'],
+      [26, 'PG_KOMPLEKS', '', 2, 'A, C', 'Pilih >1 huruf (A/B/C/D), pisahkan dengan koma'],
+      [31, 'BENAR_SALAH', '', 2, 'B, S, B', 'Isi tepat 3 huruf B/S berurutan untuk Pernyataan 1–3, pisah koma'],
+      [36, 'MENJODOHKAN', '', 2, 'B, A, D, C', 'Isi tepat 4 huruf pasangan (A-E) berurutan, pisah koma'],
+      [41, 'URAIAN_SINGKAT', '', 5, 'Metamorfosis', 'Tulis kata/frasa singkat pedoman penilaian']
+    );
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [
+    { wch: 13 },
+    { wch: 18 },
+    { wch: 24 },
+    { wch: 10 },
+    { wch: 24 },
+    { wch: 52 }
+  ];
   XLSX.utils.book_append_sheet(wb, ws, 'Kunci Jawaban');
-  XLSX.writeFile(wb, 'Format_Kunci_Jawaban_SMEPASDA.xlsx');
+
+  // Add second sheet with clear instructions
+  const guideRows = [
+    ['PANDUAN PENGISIAN TEMPLATE KUNCI JAWABAN EXCEL'],
+    [],
+    ['Tipe Soal', 'Ketentuan Penulisan pada Kolom Kunci Jawaban', 'Contoh Benar'],
+    ['PG', 'Satu huruf kapital sesuai opsi pada LJK (A, B, C, D, atau E)', 'A'],
+    ['PG_KOMPLEKS', 'Beberapa huruf kapital dipisahkan koma', 'A, C'],
+    ['BENAR_SALAH', 'Urutan huruf B (Benar) atau S (Salah) dipisahkan koma sesuai jumlah pernyataan pada LJK', 'B, S, B'],
+    ['MENJODOHKAN', 'Urutan huruf pasangan (A-E) dipisahkan koma sesuai jumlah item pada LJK', 'B, A, D, C'],
+    ['URAIAN_SINGKAT', 'Teks kata kunci / pedoman jawaban singkat', 'Fotosintesis'],
+    ['URAIAN_PANJANG', 'Teks rubrik penilaian uraian panjang', 'Menjelaskan 3 tahap secara runtut'],
+    [],
+    ['Catatan Penting:'],
+    ['1. Jangan mengubah kolom Nomor Soal dan Tipe agar tetap sinkron dengan desain LJK.'],
+    ['2. Isi atau perbarui kolom Kunci Jawaban sesuai kolom Contoh Pengisian & Ketentuan Pengisian, lalu simpan (.xlsx) dan klik "Import Excel".'],
+    ['3. Baris yang kolom Kunci Jawaban-nya dibiarkan kosong tidak akan menimpa kunci yang sudah ada.']
+  ];
+  const wsGuide = XLSX.utils.aoa_to_sheet(guideRows);
+  wsGuide['!cols'] = [{ wch: 20 }, { wch: 68 }, { wch: 30 }];
+  XLSX.utils.book_append_sheet(wb, wsGuide, 'Panduan Pengisian');
+
+  const safeSubject = (currentKey?.subject || template?.exam?.mataPelajaran || 'SMEPASDA').replace(/[^a-zA-Z0-9]/g, '_');
+  XLSX.writeFile(wb, `Template_Kunci_Jawaban_${safeSubject}.xlsx`);
+}
+
+/**
+ * Downloads sample Excel file for Answer Key import (backward-compatible helper)
+ */
+export function downloadSampleAnswerKeyExcel() {
+  downloadAnswerKeyTemplateExcel();
 }
 
 /**
@@ -329,7 +473,7 @@ export async function parseAnswerKeyExcel(file: File): Promise<Record<number, { 
   }
 
   const header = rawRows[0].map((h: any) => String(h || '').trim().toLowerCase());
-  const colNumIdx = header.findIndex((h: string) => h.includes('nomor') || h.includes('no'));
+  const colNumIdx = header.findIndex((h: string) => h.includes('nomor') || h === 'no');
   const colTypeIdx = header.findIndex((h: string) => h.includes('tipe') || h.includes('jenis'));
   const colKeyIdx = header.findIndex((h: string) => h.includes('kunci') || h.includes('jawaban'));
   const colPtsIdx = header.findIndex((h: string) => h.includes('poin') || h.includes('bobot') || h.includes('skor'));
@@ -340,34 +484,78 @@ export async function parseAnswerKeyExcel(file: File): Promise<Record<number, { 
     const row = rawRows[r];
     if (!row || row.length === 0) continue;
 
-    const numStr = String(row[colNumIdx >= 0 ? colNumIdx : 0] || '').trim();
+    const numStr = String(row[colNumIdx >= 0 ? colNumIdx : 0] ?? '').trim();
     const qNum = parseInt(numStr, 10);
     if (isNaN(qNum) || qNum <= 0) continue;
 
-    const rawType = colTypeIdx >= 0 ? String(row[colTypeIdx] || '').trim().toUpperCase() : undefined;
-    const rawKey = String(row[colKeyIdx >= 0 ? colKeyIdx : 1] || '').trim();
-    const rawPts = colPtsIdx >= 0 ? parseFloat(String(row[colPtsIdx])) : undefined;
+    const rawType = colTypeIdx >= 0
+      ? String(row[colTypeIdx] ?? '').trim().toUpperCase().replace(/[\s-]+/g, '_')
+      : undefined;
+    const keyColIndex = colKeyIdx >= 0 ? colKeyIdx : (colTypeIdx >= 0 ? 2 : 1);
+    const rawKey = String(row[keyColIndex] ?? '').trim();
+    const rawPts = colPtsIdx >= 0 ? parseFloat(String(row[colPtsIdx] ?? '')) : undefined;
+
+    // Skip empty answer rows so blank cells don't wipe existing keys
+    if (!rawKey || rawKey === '-') continue;
 
     let parsedAns: any = rawKey;
-    if (rawKey.includes(',') || rawKey.includes(';') || rawKey.includes('|')) {
-      const parts = rawKey.split(/[,;|]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
-      if (rawType === 'BENAR_SALAH' || rawType === 'MENJODOHKAN') {
-        const obj: Record<number, string> = {};
-        parts.forEach((p, idx) => { obj[idx] = p; });
-        parsedAns = obj;
+    const isEssay = rawType === 'URAIAN_SINGKAT' || rawType === 'URAIAN_PANJANG';
+
+    if (!isEssay) {
+      if (rawKey.includes(',') || rawKey.includes(';') || rawKey.includes('|') || /\s+/.test(rawKey)) {
+        const parts = rawKey
+          .split(/[,;|\s]+/)
+          .map(s => {
+            const up = s.trim().toUpperCase();
+            if (rawType === 'BENAR_SALAH') {
+              if (up === 'BENAR') return 'B';
+              if (up === 'SALAH') return 'S';
+            }
+            return up;
+          })
+          .filter(Boolean);
+
+        if (rawType === 'BENAR_SALAH' || rawType === 'MENJODOHKAN') {
+          const obj: Record<number, string> = {};
+          parts.forEach((p, idx) => { obj[idx] = p; });
+          parsedAns = obj;
+        } else {
+          parsedAns = parts;
+        }
+      } else if (rawType === 'PG_KOMPLEKS') {
+        const up = rawKey.toUpperCase();
+        parsedAns = up.length > 1 && /^[A-E]+$/.test(up) ? up.split('') : [up];
+      } else if (rawType === 'BENAR_SALAH') {
+        const up = rawKey.toUpperCase();
+        if (up === 'BENAR') {
+          parsedAns = { 0: 'B' };
+        } else if (up === 'SALAH') {
+          parsedAns = { 0: 'S' };
+        } else if (up.length > 1 && /^[BS]+$/.test(up)) {
+          const obj: Record<number, string> = {};
+          up.split('').forEach((ch, idx) => { obj[idx] = ch; });
+          parsedAns = obj;
+        } else {
+          parsedAns = { 0: up };
+        }
+      } else if (rawType === 'MENJODOHKAN') {
+        const up = rawKey.toUpperCase();
+        if (up.length > 1 && /^[A-E]+$/.test(up)) {
+          const obj: Record<number, string> = {};
+          up.split('').forEach((ch, idx) => { obj[idx] = ch; });
+          parsedAns = obj;
+        } else {
+          parsedAns = { 0: up };
+        }
       } else {
-        parsedAns = parts;
+        parsedAns = rawKey.toUpperCase();
       }
-    } else if (rawType === 'PG_KOMPLEKS') {
-      parsedAns = rawKey ? [rawKey.toUpperCase()] : [];
-    } else if (rawType === 'BENAR_SALAH' || rawType === 'MENJODOHKAN') {
-      parsedAns = rawKey ? { 0: rawKey.toUpperCase() } : {};
     }
 
     result[qNum] = {
-      type: rawType,
+      type: rawType || undefined,
       answer: parsedAns,
-      points: !isNaN(rawPts as number) ? rawPts : undefined
+      points: rawPts !== undefined && !isNaN(rawPts) ? rawPts : undefined
     };
   }
 
